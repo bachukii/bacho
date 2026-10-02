@@ -1,3 +1,3 @@
-# საველე აზომვა — APK v164
+# საველე აზომვა v165
 
-Local similarity calibration uses P5, P6, P7 from kubi_vs_api.xlsx. Applies to newly captured GPS points only. Manual offset remains optional. Height is unchanged. WFS uses Capacitor native HTTP on Android. Build with Actions > Build APK; download savele-azomva-v164-apk. Hardware verification and an independent control point are required to confirm field accuracy.
+APK embeds the app. Site has matching source. Layer selection starts GPS drawing. Eye buttons toggle visibility. SHP ZIP contains parcel, topo_point, topo_line, building, obligation. Z uses the local surface from P5/P6/P7; NMEA correction is opt-in because GGA may already provide orthometric height. Missing V is shown as unavailable, never invented. Independent field checks are still required.
