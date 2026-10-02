@@ -3672,13 +3672,25 @@ $("cmpSave").addEventListener("click",async()=>{ if (CMP_LOCKED) return;
 
 // ══ საკადასტრო ნაკვეთები (NAPR WFS, LR_PARCELS) — ნახაზზე, ფილტრით; კოდის ავტომატური შევსება ══
 // ბრაუზერი NAPR-ს პირდაპირ ვერ მიმართავს (CORS) — ვიყენებთ საკუთარი საიტის გადამისამართებას (/napr/wfs; Netlify: netlify.toml)
+async function wfsResponse(u){
+  const C=window.Capacitor;
+  if(C&&C.isNativePlatform&&C.isNativePlatform()){
+    const H=C.registerPlugin("CapacitorHttp");
+    const r=await H.request({method:"GET",url:u,connectTimeout:15000,readTimeout:30000});
+    if(r.status<200||r.status>=300) throw new Error("WFS HTTP "+r.status);
+    const j=typeof r.data==="string"?JSON.parse(r.data):r.data;
+    if(!j||!Array.isArray(j.features)) throw new Error("WFS: პასუხში ნაკვეთები არ არის");
+    return j;
+  }
+  const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error("WFS HTTP "+r.status);
+  const j=await r.json(); if(!j||!Array.isArray(j.features)) throw new Error("WFS: პასუხში ნაკვეთები არ არის"); return j;
+}
 const WFS_URL="https://azome.netlify.app/napr/wfs";
 const PARCELS={items:[], key:"", busy:false, t:0};
 function parcelRings(g){ if (!g) return []; const polys = g.type==="MultiPolygon" ? g.coordinates : g.type==="Polygon" ? [g.coordinates] : []; return polys.flat(); }
 async function wfsQuery(cql, count){
   const u=WFS_URL+"?service=WFS&version=2.0.0&request=GetFeature&typeNames=SLRWFS:LR_PARCELS_38&outputFormat=application/json&srsName=EPSG:32638&count="+(count||300)+"&CQL_FILTER="+encodeURIComponent(cql);
-  const r=await fetch(u,{cache:"no-store"}); if (!r.ok) throw new Error("ნაკვეთების სერვისი: "+r.status);
-  const j=await r.json(); return (j.features||[]).map(f=>({code:(f.properties||{}).CADCODE||"", area:(f.properties||{}).SHAPE_AREA, rings:parcelRings(f.geometry)})); }
+  const j=await wfsResponse(u); return (j.features||[]).map(f=>({code:(f.properties||{}).CADCODE||"", area:(f.properties||{}).SHAPE_AREA, rings:parcelRings(f.geometry)})); }
 const cqlEsc=s=>String(s).replace(/'/g,"''");
 function codeCql(q){ q=String(q||"").trim(); if (!q) return ""; return q.includes("%") ? "CADCODE LIKE '"+cqlEsc(q)+"'" : /^\d{2}\.\d{2}\.\d{2}\.\d{3}\.\d{3}(\.\d+)*$/.test(q) ? "CADCODE = '"+cqlEsc(q)+"'" : "CADCODE LIKE '"+cqlEsc(q)+"%'"; }
 function wfsLoadView(){ if (!SET.wfsP || !P.origin) return; const {w,h}=size(); const [x0,y1]=toWld(0,0), [x1,y0]=toWld(w,h), E=P.origin[0], N=P.origin[1];
@@ -4197,11 +4209,13 @@ let NB=null; try { const C=window.Capacitor; if (C&&C.isNativePlatform&&C.isNati
 const RX={n:0,bad:0,last:"",state:"",msg:"",dbg:0,addr:localStorage.getItem("cad_rx")||"",name:localStorage.getItem("cad_rx_name")||"",want:false,gst:null,lastEmit:0,timer:0,listening:false};
 const lsg=(k,d)=>{ try { const v=localStorage.getItem(k); return v==null?d:v; } catch(e){ return d; } };
 const NT={host:lsg("cad_nt_host",""),port:lsg("cad_nt_port","2101"),mount:lsg("cad_nt_mount",""),user:lsg("cad_nt_user",""),pass:lsg("cad_nt_pass",""),on:lsg("cad_nt_on","0")==="1",state:"",msg:"",bytes:0,timer:0,log:[],lastLog:""};
-const CORR_PRESET={dx:-0.340,dy:-0.237};   // Cube-ის პროექტის N/E = სტანდარტული UTM38N + (dx,dy). 6 წერტილი, 20 კმ-ზე გავრცელებული (ჭიათურა, 02.10.2026): ნაშთი ≤ 1.7 სმ, მასშტაბი 0.4 ppm, მობრუნება 0.03"
-try { if (localStorage.getItem("cad_corr_ver")!=="4"){ localStorage.removeItem("cad_dx"); localStorage.removeItem("cad_dy"); localStorage.setItem("cad_corr_ver","4"); } } catch(e){}
+const CAL_MODEL={"cx": 334272.641, "cy": 4669954.478999999, "ce": 334272.30199999997, "cn": 4669954.2453333335, "a": 1.000000423431939, "b": 1.659676726828003e-07, "points": [{"id": "P5", "x": 337608.072, "y": 4663467.481, "E": 337607.736, "N": 4663467.235}, {"id": "P6", "x": 345553.115, "y": 4670592.742, "E": 345552.777, "N": 4670592.518}, {"id": "P7", "x": 319656.736, "y": 4675803.214, "E": 319656.393, "N": 4675802.983}]};
+const CORR_PRESET={dx:+(CAL_MODEL.ce-CAL_MODEL.cx).toFixed(3),dy:+(CAL_MODEL.cn-CAL_MODEL.cy).toFixed(3)};
+try { if (localStorage.getItem("cad_corr_ver")!=="5"){ localStorage.removeItem("cad_dx"); localStorage.removeItem("cad_dy"); localStorage.setItem("cad_corr_ver","5"); } } catch(e){}
 const CORR_SET=localStorage.getItem("cad_dx")!=null||localStorage.getItem("cad_dy")!=null;
 const CORR={dx:CORR_SET?(parseFloat(lsg("cad_dx","0"))||0):CORR_PRESET.dx,dy:CORR_SET?(parseFloat(lsg("cad_dy","0"))||0):CORR_PRESET.dy,preset:!CORR_SET};
-function gpsFix(lat,lon){ let u=toUTM38(lat,lon); const rx=u[0], ry=u[1]; if (CORR.dx||CORR.dy){ u=[u[0]+CORR.dx,u[1]+CORR.dy]; const ll=fromUTM38(u[0],u[1]); lat=ll[0]; lon=ll[1]; } return {lat,lon,x:u[0],y:u[1],rx,ry}; }
+function calibratedUTM(x,y){ const m=CAL_MODEL,X=x-m.cx,Y=y-m.cy; return [m.ce+m.a*X-m.b*Y,m.cn+m.b*X+m.a*Y]; }
+function gpsFix(lat,lon){ let u=toUTM38(lat,lon); const rx=u[0],ry=u[1]; u=CORR.preset?calibratedUTM(rx,ry):[rx+CORR.dx,ry+CORR.dy]; const ll=fromUTM38(u[0],u[1]); return {lat:ll[0],lon:ll[1],x:u[0],y:u[1],rx,ry}; }
 const FIXN={0:"ფიქსი არ არის",1:"Single",2:"DGPS",3:"PPS",4:"RTK Fixed",5:"RTK Float",6:"Dead reckoning"};
 function nmeaOk(l){ const i=l.indexOf("*"); if (l.charAt(0)!=="$"||i<0) return false; let c=0; for(let k=1;k<i;k++) c^=l.charCodeAt(k); return c===parseInt(l.slice(i+1,i+3),16); }
 function nmeaDM(v,h){ if (!v) return null; const n=parseFloat(v); if (!isFinite(n)) return null; const d=Math.floor(n/100), r=d+(n-d*100)/60; return (h==="S"||h==="W")?-r:r; }
@@ -4245,7 +4259,7 @@ const cqlEsc=s=>String(s).replace(/'/g,"''");
 function codeCql(q){ q=String(q||"").trim(); if (!q) return ""; return q.includes("%") ? "CADCODE LIKE '"+cqlEsc(q)+"'" : /^\d{2}\.\d{2}\.\d{2}\.\d{3}\.\d{3}(\.\d+)*$/.test(q) ? "CADCODE = '"+cqlEsc(q)+"'" : "CADCODE LIKE '"+cqlEsc(q)+"%'"; }
 function ringsOf(g){ if (!g) return []; const polys=g.type==="MultiPolygon"?g.coordinates:g.type==="Polygon"?[g.coordinates]:[]; return polys.flat(); }
 async function wfsQ(cql,count){ const u="https://azome.netlify.app/napr/wfs?service=WFS&version=2.0.0&request=GetFeature&typeNames=SLRWFS:LR_PARCELS_38&outputFormat=application/json&srsName=EPSG:32638&count="+(count||300)+"&CQL_FILTER="+encodeURIComponent(cql);
-  const r=await fetch(u,{cache:"no-store"}); if (!r.ok) throw new Error("ნაკვეთების სერვისი: "+r.status); const j=await r.json();
+  const j=await wfsResponse(u);
   return (j.features||[]).map(f=>({code:(f.properties||{}).CADCODE||"",area:(f.properties||{}).SHAPE_AREA,rings:ringsOf(f.geometry)})); }
 const inRing=(p,r)=>{ let c=false; for(let i=0,j=r.length-1;i<r.length;j=i++){ const a=r[i],b=r[j]; if ((a[1]>p[1])!==(b[1]>p[1]) && p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0]) c=!c; } return c; };
 let curMap=null;
@@ -4517,10 +4531,10 @@ function settingsHtml(){ const opt=(v,cur,l)=>`<option value="${v}"${+v===+cur?"
   return `<hr style="border:0;border-top:1px solid var(--line);margin:12px 0"><label class="chk cf-l"><input type="checkbox" id="cfSnd"${SND.on?" checked":""}> 🔊 ხმა და ვიბრაცია</label>
   <div class="field"><label>ცდომილების ზღვარი (მ) — ამაზე უარესზე გაფრთხილება</label><select class="input" id="cfTh">${[0.03,0.05,0.10,0.20,0.50,1,3].map(v=>opt(v,SND.th,v+" მ")).join("")}</select></div>
   <div class="field"><label>აღებისას საშუალოება (წმ)</label><select class="input" id="cfAvg">${[[0,"მყისიერი (1 ეპოქა)"],[3,"3 წმ"],[5,"5 წმ"],[10,"10 წმ"],[20,"20 წმ"]].map(a=>opt(a[0],SND.avg,a[1])).join("")}</select></div>
-  <div class="field"><label>კოორდინატების კორექცია (UTM 38N, მეტრი) — Cube-თან შესატყვისად${CORR.preset?" <b style=\"color:#a67c00\">· პრესეტი: საქართველო (GeoCORS → Cube)</b>":""}</label><div class="row" style="gap:8px"><input class="input" id="cfDx" type="number" step="0.001" value="${CORR.dx}" placeholder="ΔX (E)" style="flex:1"><input class="input" id="cfDy" type="number" step="0.001" value="${CORR.dy}" placeholder="ΔY (N)" style="flex:1"></div><p class="cad-note">ეს ყველა GPS წერტილს დაუმატდება. 0 / 0 = გამორთულია.</p>
+  <div class="field"><label>კოორდინატების კორექცია (UTM 38N, მეტრი) — Cube-თან შესატყვისად${CORR.preset?" <b style=\"color:#a67c00\">· კალიბრაცია: P5 / P6 / P7 → Cube</b>":""}</label><div class="row" style="gap:8px"><input class="input" id="cfDx" type="number" step="0.001" value="${CORR.dx}" placeholder="ΔX (E)" style="flex:1"><input class="input" id="cfDy" type="number" step="0.001" value="${CORR.dy}" placeholder="ΔY (N)" style="flex:1"></div><p class="cad-note">სამწერტილიანი რეჟიმი იყენებს გადაადგილებას, მობრუნებასა და მასშტაბს. ველების შეცვლა ჩართავს ხელით ფიქსირებულ კორექციას. 0 / 0 = ხელით კორექცია გამორთულია.</p>
     <label style="margin-top:10px;display:block"><b>📐 დაკალიბრება Cube-ზე:</b> დადექით მიმღებით ნებისმიერ წერტილზე, Cube-დან ჩაწერეთ იმავე წერტილის E და N და დააჭირეთ „დაკალიბრებას“ — აპი თვითონ დათვლის ΔX/ΔY-ს.</label>
     <div class="row" style="gap:8px;margin-top:6px"><input class="input" id="cfCalE" type="number" step="0.001" placeholder="Cube E (Easting)" style="flex:1"><input class="input" id="cfCalN" type="number" step="0.001" placeholder="Cube N (Northing)" style="flex:1"></div>
-    <div class="cf-btns"><button type="button" class="btn primary" data-g="calib">📐 დაკალიბრება</button><button type="button" class="btn" data-g="calibpre">პრესეტი (საქართველო)</button><button type="button" class="btn" data-g="calibclr">გამორთვა (0 / 0)</button></div></div>
+    <div class="cf-btns"><button type="button" class="btn primary" data-g="calib">📐 დაკალიბრება</button><button type="button" class="btn" data-g="calibpre">3 წერტილის კალიბრაცია</button><button type="button" class="btn" data-g="calibclr">გამორთვა (0 / 0)</button></div></div>
   <div class="cf-btns"><button type="button" class="btn" data-g="sndtest">🔊 ტესტი</button></div>`; }
 function posVals(){ const g=GPS.last, t=gpsText(); return `<div class="cf-kv"><span>სტატუსი</span><b class="cad-chip ${t[1]}">${esc(t[0])}</b></div>`+rxDbg()+(g?
     (g.fixName?`<div class="cf-kv"><span>ფიქსი</span><b>${esc(g.fixName)}</b></div>`:"")+(g.src==="nmea"?`<div class="cf-kv"><span>თანამგზავრები / HDOP</span><b>${g.sats} / ${g.hdop!=null?g.hdop:"—"}</b></div>`:"")+
